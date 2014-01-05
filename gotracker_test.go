@@ -1,6 +1,7 @@
 package gotracker
 
 import (
+  "crypto/rand"
   "fmt"
   "github.com/tumdum/bencoding"
   "io/ioutil"
@@ -157,5 +158,33 @@ func TestRequestsForDifferentInfoHashesShouldBeUnrelated(t *testing.T) {
   rec2 := performRequest(tracker, otherPeerId, "aaaaabbbbbcccccddddd")
   if rec2.Body.String() != emptyResponse {
     t.Fatalf("Expected empty response, got '%v'", rec2.Body.String())
+  }
+}
+
+func randomString(str_size int) string {
+  alphanum := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  var bytes = make([]byte, str_size)
+  rand.Read(bytes)
+  for i, b := range bytes {
+    bytes[i] = alphanum[b%byte(len(alphanum))]
+  }
+  return string(bytes)
+}
+
+func TestNumwantSupportShouldWork(t *testing.T) {
+  tracker := MakeTracker(ioutil.Discard, 1800)
+  for i := 0; i < 100; i++ {
+    performRequest(tracker, randomString(20), defaultInfoHash)
+  }
+  opts := defaultSeederFormValues()
+  opts["numwant"] = []string{"20"}
+  req := newGetRequest(defaultHost, opts)
+  rec := httptest.NewRecorder()
+  tracker.ServeHTTP(rec, req)
+  resp := make(map[string]interface{})
+  bencoding.Unmarshal(rec.Body.Bytes(), &resp)
+  peers := resp["peers"].([]interface{})
+  if len(peers) != 20 {
+    t.Fatalf("Expected to get 20 peers, got %v", len(peers))
   }
 }
