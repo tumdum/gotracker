@@ -1,6 +1,7 @@
 package gotracker
 
 import (
+  "fmt"
 	"errors"
 	"io"
 	"log"
@@ -57,17 +58,19 @@ func extractRequestData(r *http.Request) (*RequestData, error) {
 type PeerSet map[Peer]bool
 
 type Tracker struct {
+  interval int
 	logger          *log.Logger
 	m               sync.Mutex
 	managedTorrents map[string]PeerSet
 }
 
-func MakeTracker(logSink io.Writer) *Tracker {
+func MakeTracker(logSink io.Writer, interval int) *Tracker {
 	t := new(Tracker)
 	t.logger = log.New(logSink, "gotracker ", log.LstdFlags)
+  t.interval = interval
 	return t
 }
 
 func (t *Tracker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("d8:intervali1800e5:peerslee"))
+	w.Write([]byte("d8:intervali" + fmt.Sprint(t.interval) + "e5:peerslee"))
 }
