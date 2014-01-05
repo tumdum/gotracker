@@ -67,7 +67,7 @@ func extractRequestData(r *http.Request) (*RequestData, error) {
 type PeerSet map[Peer]bool
 
 type Tracker struct {
-  interval        int
+  Interval        int
   logger          *log.Logger
   m               sync.Mutex
   managedTorrents map[string]PeerSet
@@ -76,7 +76,7 @@ type Tracker struct {
 func MakeTracker(logSink io.Writer, interval int) *Tracker {
   t := new(Tracker)
   t.logger = log.New(logSink, "gotracker ", log.LstdFlags)
-  t.interval = interval
+  t.Interval = interval
   t.managedTorrents = make(map[string]PeerSet)
   return t
 }
@@ -132,7 +132,7 @@ func (t *Tracker) prepareResponse(req *RequestData) TrackerResponse {
   t.m.Lock()
   defer t.m.Unlock()
   t.addPeer(req)
-  return TrackerResponse{t.interval, t.collectPeers(req)}
+  return TrackerResponse{t.Interval, t.collectPeers(req)}
 }
 
 func (t *Tracker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
