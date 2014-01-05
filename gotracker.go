@@ -80,5 +80,8 @@ func (t *Tracker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   resp := TrackerResponse{}
   resp.Interval = t.interval
   b, _ := bencoding.Marshal(resp)
-	w.Write(b)
+  _, err := w.Write(b)
+  if err != nil {
+    t.logger.Printf("Failed to write response due to: '%v'", err)
+  }
 }
