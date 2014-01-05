@@ -2,6 +2,7 @@ package gotracker
 
 import (
   "fmt"
+  "github.com/tumdum/bencoding"
   "io/ioutil"
   "net/http"
   "net/http/httptest"
@@ -13,6 +14,8 @@ const (
   defaultHost     = "http://example.com/"
   defaultInfoHash = "abcdeabcdeabcdeabcde"
   defaultPeerId   = "01234567890123456789"
+  defaultIp       = "127.0.0.1"
+  defaultPort     = 2048
 )
 
 func TestExtractRequestDataWillReturnErrorOnNil(t *testing.T) {
@@ -26,7 +29,7 @@ func defaultSeederFormValues() url.Values {
   opts := make(url.Values)
   opts["info_hash"] = []string{defaultInfoHash}
   opts["peer_id"] = []string{defaultPeerId}
-  opts["port"] = []string{"2048"}
+  opts["port"] = []string{fmt.Sprint(defaultPort)}
   opts["uploaded"] = []string{"0"}
   opts["downloaded"] = []string{"0"}
   opts["left"] = []string{"0"}
@@ -39,7 +42,7 @@ func newGetRequest(baseUrl string, formValues url.Values) *http.Request {
   if err != nil {
     panic(err)
   }
-  req.RemoteAddr = "127.0.0.1:4321"
+  req.RemoteAddr = defaultIp + ":4321"
   req.ParseForm()
   return req
 }
@@ -50,7 +53,7 @@ func TestRequestShouldSucceedWithCorrectRequest(t *testing.T) {
   if err != nil {
     t.Fatalf("extractRequestData should not fail, err: %v, req: '%v'", err, req)
   }
-  if data.Ip != "127.0.0.1" || data.InfoHash != defaultInfoHash || data.PeerId != defaultPeerId || data.Port != 2048 {
+  if data.Ip != "127.0.0.1" || data.InfoHash != defaultInfoHash || data.PeerId != defaultPeerId || data.Port != defaultPort {
     t.Fatalf("Expected correctly extracted data, got '%#v'", data)
   }
 }
@@ -110,5 +113,25 @@ func TestTrackerShouldReturnCorrectWaitInterval(t *testing.T) {
     if recorder.Body.String() != expected {
       t.Fatalf("Wrong body, expected '%v', got '%v'", expected, recorder.Body.String())
     }
+  }
+}
+
+func TestTrackerShouldReturnNonemptyListOfPeersInSubsequentRequest(t *testing.T) {
+  tracker := MakeTracker(ioutil.Discard, 1800)
+  req1 := newGetRequest(defaultHost, defaultSeederFormValues())
+  tracker.ServeHTTP(httptest.NewRecorder(), req1)
+  opts := defaultSeederFormValues()
+  opts["peer_id"] = []string{"aaaaabbbbbcccccddddd"}
+  req2 := newGetRequest(defaultHost, opts)
+  rec2 := httptest.NewRecorder()
+  tracker.ServeHTTP(rec2, req2)
+  resp := make(map[string]interface{})
+  bencoding.Unmarshal(rec2.Body.Bytes(), &resp)
+  if rinterval := resp["interval"].(int64); rinterval != 1800 {
+    t.Fatalf("Expected interval 1800, got '%v'", rinterval)
+  }
+  peer := resp["peers"].([]interface{})[0].(map[string]interface{})
+  if peer["id"].(string) != defaultPeerId || peer["ip"].(string) != defaultIp || peer["port"].(int64) != defaultPort {
+    t.Fatalf("Incorrect peer found: '%v'", peer)
   }
 }
