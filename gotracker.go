@@ -1,7 +1,6 @@
 package gotracker
 
 import (
-  "fmt"
 	"errors"
 	"io"
 	"log"
@@ -10,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+  "github.com/tumdum/bencoding"
 )
 
 type Peer struct {
@@ -71,6 +71,14 @@ func MakeTracker(logSink io.Writer, interval int) *Tracker {
 	return t
 }
 
+type TrackerResponse struct {
+  Interval int `bencoding:"interval"`
+  Peers []Peer `bencoding:"peers"`
+}
+
 func (t *Tracker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("d8:intervali" + fmt.Sprint(t.interval) + "e5:peerslee"))
+  resp := TrackerResponse{}
+  resp.Interval = t.interval
+  b, _ := bencoding.Marshal(resp)
+	w.Write(b)
 }
