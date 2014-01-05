@@ -13,9 +13,12 @@ import (
 const (
   defaultHost     = "http://example.com/"
   defaultInfoHash = "abcdeabcdeabcdeabcde"
+  otherInfoHash   = "aaaaaaaaaaaaaaaaaaaa"
   defaultPeerId   = "01234567890123456789"
+  otherPeerId     = "00000000000000000000"
   defaultIp       = "127.0.0.1"
   defaultPort     = 2048
+  emptyResponse   = "d8:intervali1800e5:peerslee"
 )
 
 func TestExtractRequestDataWillReturnErrorOnNil(t *testing.T) {
@@ -94,7 +97,7 @@ func TestTrackerShouldReturnEmptyListOfPeersOnFirstRequest(t *testing.T) {
   if recorder.Code != http.StatusOK {
     t.Fatalf("First correct response should be 200 OK")
   }
-  if recorder.Body.String() != "d8:intervali1800e5:peerslee" {
+  if recorder.Body.String() != emptyResponse {
     t.Fatalf("Expected empty bencoded response, got '%v'", recorder.Body.String())
   }
 }
@@ -116,22 +119,43 @@ func TestTrackerShouldReturnCorrectWaitInterval(t *testing.T) {
   }
 }
 
+func performRequest(t *Tracker, peerId string, infoHash string) *httptest.ResponseRecorder {
+  opts := defaultSeederFormValues()
+  opts["peer_id"] = []string{peerId}
+  opts["info_hash"] = []string{infoHash}
+  req := newGetRequest(defaultHost, opts)
+  rec := httptest.NewRecorder()
+  t.ServeHTTP(rec, req)
+  return rec
+}
+
 func TestTrackerShouldReturnNonemptyListOfPeersInSubsequentRequest(t *testing.T) {
   tracker := MakeTracker(ioutil.Discard, 1800)
-  req1 := newGetRequest(defaultHost, defaultSeederFormValues())
-  tracker.ServeHTTP(httptest.NewRecorder(), req1)
-  opts := defaultSeederFormValues()
-  opts["peer_id"] = []string{"aaaaabbbbbcccccddddd"}
-  req2 := newGetRequest(defaultHost, opts)
-  rec2 := httptest.NewRecorder()
-  tracker.ServeHTTP(rec2, req2)
+  performRequest(tracker, defaultPeerId, defaultInfoHash)
+  rec := performRequest(tracker, "aaaaabbbbbcccccddddd", defaultInfoHash)
+
   resp := make(map[string]interface{})
-  bencoding.Unmarshal(rec2.Body.Bytes(), &resp)
+  bencoding.Unmarshal(rec.Body.Bytes(), &resp)
   if rinterval := resp["interval"].(int64); rinterval != 1800 {
     t.Fatalf("Expected interval 1800, got '%v'", rinterval)
   }
   peer := resp["peers"].([]interface{})[0].(map[string]interface{})
   if peer["id"].(string) != defaultPeerId || peer["ip"].(string) != defaultIp || peer["port"].(int64) != defaultPort {
     t.Fatalf("Incorrect peer found: '%v'", peer)
+  }
+}
+
+func TestRequestsForDifferentInfoHashesShouldBeUnrelated(t *testing.T) {
+  tracker := MakeTracker(ioutil.Discard, 1800)
+  performRequest(tracker, defaultPeerId, defaultInfoHash)
+
+  rec := performRequest(tracker, defaultPeerId, otherInfoHash)
+  if rec.Body.String() != emptyResponse {
+    t.Fatalf("Expected empty response, got '%v'", rec.Body.String())
+  }
+
+  rec2 := performRequest(tracker, otherPeerId, "aaaaabbbbbcccccddddd")
+  if rec2.Body.String() != emptyResponse {
+    t.Fatalf("Expected empty response, got '%v'", rec2.Body.String())
   }
 }
