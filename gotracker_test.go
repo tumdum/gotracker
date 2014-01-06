@@ -1,10 +1,10 @@
 package gotracker
 
 import (
-  "crypto/rand"
   "fmt"
   "github.com/tumdum/bencoding"
   "io/ioutil"
+  "math/rand"
   "net/http"
   "net/http/httptest"
   "net/url"
@@ -164,9 +164,8 @@ func TestRequestsForDifferentInfoHashesShouldBeUnrelated(t *testing.T) {
 func randomString(str_size int) string {
   alphanum := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
   var bytes = make([]byte, str_size)
-  rand.Read(bytes)
-  for i, b := range bytes {
-    bytes[i] = alphanum[b%byte(len(alphanum))]
+  for i, _ := range bytes {
+    bytes[i] = alphanum[rand.Int31n(int32(len(alphanum)))]
   }
   return string(bytes)
 }
