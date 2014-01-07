@@ -1,0 +1,6 @@
+[network]
+host = 127.0.0.1
+port = 2048
+[server]
+defaultnumwant = 50
+maxnumwant = 200
