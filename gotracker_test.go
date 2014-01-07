@@ -22,6 +22,10 @@ const (
 	emptyResponse   = "d8:intervali1800e5:peerslee"
 )
 
+var (
+	defaultServerConfig = Server{Interval: 1800, DefaultNumWant: 50, MaxNumWant: 200}
+)
+
 func TestExtractRequestDataWillReturnErrorOnNil(t *testing.T) {
 	r, e := extractRequestData(nil)
 	if r != nil || e == nil {
@@ -92,7 +96,7 @@ func TestRequestWithBrokenRemoteAddressShouldFail(t *testing.T) {
 
 func TestTrackerShouldReturnEmptyListOfPeersOnFirstRequest(t *testing.T) {
 	r := newGetRequest(defaultHost, defaultSeederFormValues())
-	tracker := MakeTracker(ioutil.Discard, 1800)
+	tracker := MakeTracker(ioutil.Discard, &defaultServerConfig)
 	recorder := httptest.NewRecorder()
 	tracker.ServeHTTP(recorder, r)
 	if recorder.Code != http.StatusOK {
@@ -107,7 +111,9 @@ func TestTrackerShouldReturnCorrectWaitInterval(t *testing.T) {
 	intervals := []int{1, 2, 3, 4, 100, 200, 500, 1800, 5000, 40000}
 	for _, interval := range intervals {
 		req := newGetRequest(defaultHost, defaultSeederFormValues())
-		tracker := MakeTracker(ioutil.Discard, interval)
+		localConfig := defaultServerConfig
+		localConfig.Interval = interval
+		tracker := MakeTracker(ioutil.Discard, &localConfig)
 		recorder := httptest.NewRecorder()
 		tracker.ServeHTTP(recorder, req)
 		if recorder.Code != http.StatusOK {
@@ -131,23 +137,27 @@ func performRequest(t *Tracker, peerId string, infoHash string) *httptest.Respon
 }
 
 func TestTrackerShouldReturnNonemptyListOfPeersInSubsequentRequest(t *testing.T) {
-	tracker := MakeTracker(ioutil.Discard, 1800)
+	tracker := MakeTracker(ioutil.Discard, &defaultServerConfig)
 	performRequest(tracker, defaultPeerId, defaultInfoHash)
 	rec := performRequest(tracker, "aaaaabbbbbcccccddddd", defaultInfoHash)
 
 	resp := make(map[string]interface{})
 	bencoding.Unmarshal(rec.Body.Bytes(), &resp)
-	if rinterval := resp["interval"].(int64); rinterval != 1800 {
-		t.Fatalf("Expected interval 1800, got '%v'", rinterval)
+	if rinterval := resp["interval"].(int64); rinterval != int64(defaultServerConfig.Interval) {
+		t.Fatalf("Expected interval %d, got '%v'", defaultServerConfig.Interval, rinterval)
 	}
-	peer := resp["peers"].([]interface{})[0].(map[string]interface{})
+	peers := resp["peers"].([]interface{})
+	if len(peers) != 1 {
+		t.Fatalf("Expected exactly one peer, got '%v'", peers)
+	}
+	peer := peers[0].(map[string]interface{})
 	if peer["id"].(string) != defaultPeerId || peer["ip"].(string) != defaultIp || peer["port"].(int64) != defaultPort {
 		t.Fatalf("Incorrect peer found: '%v'", peer)
 	}
 }
 
 func TestRequestsForDifferentInfoHashesShouldBeUnrelated(t *testing.T) {
-	tracker := MakeTracker(ioutil.Discard, 1800)
+	tracker := MakeTracker(ioutil.Discard, &defaultServerConfig)
 	performRequest(tracker, defaultPeerId, defaultInfoHash)
 
 	rec := performRequest(tracker, defaultPeerId, otherInfoHash)
@@ -171,7 +181,7 @@ func randomString(str_size int) string {
 }
 
 func TestNumwantSupportShouldWork(t *testing.T) {
-	tracker := MakeTracker(ioutil.Discard, 1800)
+	tracker := MakeTracker(ioutil.Discard, &defaultServerConfig)
 	for i := 0; i < 100; i++ {
 		performRequest(tracker, randomString(20), defaultInfoHash)
 	}

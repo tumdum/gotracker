@@ -12,10 +12,6 @@ import (
 	"sync"
 )
 
-const (
-	defaultNumWant = 50
-)
-
 var (
 	NilRequestError      = errors.New("nil request")
 	MissingPortError     = errors.New("port is missing form request")
@@ -59,25 +55,36 @@ func extractRequestData(r *http.Request) (*RequestData, error) {
 	}
 	ret := &RequestData{Peer: Peer{ip, port, peer_id}, InfoHash: info_hash}
 
-	numWant, _ := strconv.Atoi(r.FormValue("numwant"))
-	ret.NumWant = &numWant
+	numWant, err := strconv.Atoi(r.FormValue("numwant"))
+	if err == nil {
+		ret.NumWant = &numWant
+	}
 	return ret, nil
 }
 
-type PeerSet map[Peer]bool
-
-type Tracker struct {
-	Interval        int
-	logger          *log.Logger
-	m               sync.Mutex
-	managedTorrents map[string]PeerSet
+type peerSet struct {
+	m     sync.Mutex
+	peers map[Peer]bool
 }
 
-func MakeTracker(logSink io.Writer, interval int) *Tracker {
+func newPeerSet() *peerSet {
+	ps := &peerSet{}
+	ps.peers = make(map[Peer]bool)
+	return ps
+}
+
+type Tracker struct {
+	Logger          *log.Logger
+	m               sync.Mutex
+	managedTorrents map[string]*peerSet
+	config          Server
+}
+
+func MakeTracker(logSink io.Writer, serverConfig *Server) *Tracker {
 	t := new(Tracker)
-	t.logger = log.New(logSink, "gotracker ", log.LstdFlags)
-	t.Interval = interval
-	t.managedTorrents = make(map[string]PeerSet)
+	t.Logger = log.New(logSink, "gotracker ", log.LstdFlags)
+	t.config = *serverConfig
+	t.managedTorrents = make(map[string]*peerSet)
 	return t
 }
 
@@ -87,31 +94,36 @@ type TrackerResponse struct {
 }
 
 func (t *Tracker) logAndFail(reason string, err error, w http.ResponseWriter) {
-	t.logger.Printf("Tracker failed due to '%v' with reason '%v'", err, reason)
+	t.Logger.Printf("Tracker failed due to '%v' with reason '%v'", err, reason)
 	_, err = w.Write([]byte(reason))
 	if err != nil {
-		t.logger.Printf("Failed to write response in logAndFail!")
+		t.Logger.Printf("Failed to write response in logAndFail!")
 	}
 }
 
-// Assumes that access to tracker has been made thread safe,
-// ie. t.m is already locked.
 func (t *Tracker) addPeer(req *RequestData) {
+	t.m.Lock()
+	defer t.m.Unlock()
 	if _, ok := t.managedTorrents[req.InfoHash]; !ok {
-		t.managedTorrents[req.InfoHash] = make(PeerSet)
+		t.managedTorrents[req.InfoHash] = newPeerSet()
 	}
-	t.managedTorrents[req.InfoHash][req.Peer] = true
+	t.managedTorrents[req.InfoHash].peers[req.Peer] = true
 }
 
-// Assumes that access to tracker has been made thread safe,
-// ie. t.m is already locked.
 func (t *Tracker) collectPeers(req *RequestData) []Peer {
 	ret := []Peer{}
-	max := defaultNumWant
+	max := t.config.DefaultNumWant
 	if req.NumWant != nil {
 		max = *req.NumWant
 	}
-	peers := t.managedTorrents[req.InfoHash]
+	if max == len(ret) {
+		return ret
+	}
+	t.m.Lock()
+	peers := t.managedTorrents[req.InfoHash].peers
+	t.managedTorrents[req.InfoHash].m.Lock()
+	t.m.Unlock()
+	defer t.managedTorrents[req.InfoHash].m.Unlock()
 	found := 0
 	for k, v := range peers {
 		if !v || k == req.Peer {
@@ -129,10 +141,8 @@ func (t *Tracker) collectPeers(req *RequestData) []Peer {
 // Records req.Peer as one interested in req.Info hash and return other
 // peers interested in that torrent.
 func (t *Tracker) prepareResponse(req *RequestData) TrackerResponse {
-	t.m.Lock()
-	defer t.m.Unlock()
 	t.addPeer(req)
-	return TrackerResponse{t.Interval, t.collectPeers(req)}
+	return TrackerResponse{t.config.Interval, t.collectPeers(req)}
 }
 
 func (t *Tracker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +155,6 @@ func (t *Tracker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b, _ := bencoding.Marshal(resp)
 	_, err = w.Write(b)
 	if err != nil {
-		t.logger.Printf("Failed to write response due to: '%v'", err)
+		t.Logger.Printf("Failed to write response due to: '%v'", err)
 	}
 }
