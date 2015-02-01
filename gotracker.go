@@ -32,7 +32,6 @@ type RequestData struct {
 	NumWant  *int
 }
 
-// Important: assumes that was already called
 func extractRequestData(r *http.Request) (*RequestData, error) {
 	if r == nil {
 		return nil, NilRequestError
@@ -64,12 +63,12 @@ func extractRequestData(r *http.Request) (*RequestData, error) {
 
 type peerSet struct {
 	m     sync.Mutex
-	peers map[Peer]bool
+	peers map[Peer]struct{}
 }
 
 func newPeerSet() *peerSet {
 	ps := &peerSet{}
-	ps.peers = make(map[Peer]bool)
+	ps.peers = make(map[Peer]struct{})
 	return ps
 }
 
@@ -107,31 +106,29 @@ func (t *Tracker) addPeer(req *RequestData) {
 	if _, ok := t.managedTorrents[req.InfoHash]; !ok {
 		t.managedTorrents[req.InfoHash] = newPeerSet()
 	}
-	t.managedTorrents[req.InfoHash].peers[req.Peer] = true
+	t.managedTorrents[req.InfoHash].peers[req.Peer] = struct{}{}
 }
 
 func (t *Tracker) collectPeers(req *RequestData) []Peer {
-	ret := []Peer{}
 	max := t.config.DefaultNumWant
 	if req.NumWant != nil {
 		max = *req.NumWant
 	}
-	if max == len(ret) {
-		return ret
+	if max == 0 {
+		return []Peer{}
 	}
 	t.m.Lock()
 	peers := t.managedTorrents[req.InfoHash].peers
 	t.managedTorrents[req.InfoHash].m.Lock()
 	t.m.Unlock()
 	defer t.managedTorrents[req.InfoHash].m.Unlock()
-	found := 0
-	for k, v := range peers {
-		if !v || k == req.Peer {
+	ret := []Peer{}
+	for k, _ := range peers {
+		if k == req.Peer {
 			continue
 		}
 		ret = append(ret, k)
-		found++
-		if found == max {
+		if len(ret) == max {
 			break
 		}
 	}
