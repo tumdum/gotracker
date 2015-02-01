@@ -3,7 +3,9 @@ package main
 import (
 	"code.google.com/p/gcfg"
 	"fmt"
+	"github.com/gorilla/mux"
 	"github.com/tumdum/gotracker"
+	"html/template"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +15,18 @@ const (
 	logFilePath     = "debug.log"
 	defaultInterval = 1801
 )
+
+const (
+	welcomeTemplateStr = `
+	<html>
+		<head></head>
+		<body>
+			<a href="list">List of all tracked files</a>
+		</body>
+	</html>`
+)
+
+var welcomeTemplate *template.Template
 
 func BuildTracker(cfg *gotracker.Server) *gotracker.Tracker {
 	logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, os.ModePerm)
@@ -26,14 +40,36 @@ func BuildTracker(cfg *gotracker.Server) *gotracker.Tracker {
 	return tracker
 }
 
-func BuildServer(handler http.Handler, cfg *gotracker.Config) *http.Server {
+func BuildServer(tracker *gotracker.Tracker, cfg *gotracker.Config) *http.Server {
+	m := mux.NewRouter()
+	announceHandler := func(w http.ResponseWriter, r *http.Request) {
+		tracker.ServeHTTP(w, r)
+	}
+	m.Path("/announce").HandlerFunc(announceHandler)
+
+	listHandler := func(w http.ResponseWriter, r *http.Request) {
+		tracker.ListAll(w, r)
+	}
+	m.Methods("GET").Path("/list").HandlerFunc(listHandler)
+
+	infoHandler := func(w http.ResponseWriter, r *http.Request) {
+		tracker.Info(w, r)
+	}
+	m.Methods("GET").Path("/info/{hash}").HandlerFunc(infoHandler)
+
+	m.Methods("GET").Path("/").HandlerFunc(WelcomeHandler)
+
 	return &http.Server{
 		Addr:           cfg.Network.Host + ":" + fmt.Sprint(cfg.Network.Port),
-		Handler:        handler,
+		Handler:        m,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
+}
+
+func WelcomeHandler(w http.ResponseWriter, r *http.Request) {
+	welcomeTemplate.Execute(w, nil)
 }
 
 func ReadConfig() (*gotracker.Config, error) {
@@ -46,6 +82,8 @@ func ReadConfig() (*gotracker.Config, error) {
 }
 
 func main() {
+	welcomeTemplate =
+		template.Must(template.New("welcome").Parse(welcomeTemplateStr))
 	cfg, err := ReadConfig()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())

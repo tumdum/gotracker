@@ -2,7 +2,9 @@ package gotracker
 
 import (
 	"errors"
+	"github.com/gorilla/mux"
 	"github.com/tumdum/bencoding"
+	"html/template"
 	"io"
 	"log"
 	"net"
@@ -153,5 +155,44 @@ func (t *Tracker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, err = w.Write(b)
 	if err != nil {
 		t.Logger.Printf("Failed to write response due to: '%v'", err)
+	}
+}
+
+var listTemplateStr = `
+	<html><head></head><body>
+	List of all managed torrents:</br>
+	{{range $peer, $info := . }}
+	<a href="/info/{{$peer}}">{{$peer}}</a>
+	{{end}}
+	</body></html>`
+var listTemplate *template.Template
+
+func init() {
+	listTemplate = template.Must(template.New("list").Parse(listTemplateStr))
+}
+
+func (t Tracker) ListAll(w http.ResponseWriter, r *http.Request) {
+	listTemplate.Execute(w, t.managedTorrents)
+}
+
+var infoTemplateStr = `
+	<html><head></head><body>
+	Peers:</br>
+	{{range $peer, $ignore := .}}
+	{{$peer.Ip}}:{{$peer.Port}} {{$peer.PeerId}}
+	{{end}}
+	</body></html>`
+var infoTemplate *template.Template
+
+func init() {
+	infoTemplate = template.Must(template.New("info").Parse(infoTemplateStr))
+}
+
+func (t Tracker) Info(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	hash := url.QueryEscape(vars["hash"])
+	peers, ok := t.managedTorrents[hash]
+	if ok {
+		infoTemplate.Execute(w, peers.peers)
 	}
 }
